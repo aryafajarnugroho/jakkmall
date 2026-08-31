@@ -219,7 +219,7 @@ export class ShopeeAutomationBot {
     return {
       success: playwrightSuccess,
       productId: product.id,
-      method: 'PLAYWRIGHT_MASS_UPLOAD',
+      method: 'PLAYWRIGHT_BOT',
       message: playwrightSuccess
         ? '✅ File Excel berhasil diunggah ke Shopee Mass Upload secara otomatis!'
         : '⚠️ Bot lokal tidak aktif. Gunakan tombol Export Excel untuk upload manual.',
