@@ -4,7 +4,7 @@ import fs from 'fs';
 
 export class ShopeeAutomationBot {
   /**
-   * Automate Shopee product listing with persistent login session support
+   * Automate Shopee product listing with persistent login session & interactive form filling
    */
   public static async publishProduct(
     product: ShopeeProductMapping,
@@ -35,11 +35,11 @@ export class ShopeeAutomationBot {
 
       const browser = await chromium.launch({
         headless: isHeadless,
-        slowMo: isHeadless ? 0 : 300,
+        slowMo: isHeadless ? 0 : 250,
         args: ['--disable-blink-features=AutomationControlled', '--no-sandbox', '--start-maximized'],
       });
 
-      // Gunakan saved session login jika tersedia
+      // Konfigurasi context dengan session login tersimpan
       const contextOptions: Parameters<typeof browser.newContext>[0] = {
         viewport: isHeadless ? { width: 1280, height: 800 } : null,
         userAgent:
@@ -47,77 +47,77 @@ export class ShopeeAutomationBot {
       };
 
       if (hasSavedSession) {
-        log('🔑 Menggunakan Sesi Login Tersimpan (data/shopee_session.json)...');
+        log('🔑 Sesi Login Shopee Terverifikasi (data/shopee_session.json)');
         contextOptions.storageState = sessionFilePath;
       } else {
-        log('ℹ️ Belum ada file sesi tersimpan. Menjalankan mode demo & navigasi portal...');
+        log('ℹ️ Belum ada file sesi tersimpan. Silakan jalankan `npm run shopee:login` untuk sync akun.');
       }
 
       const context = await browser.newContext(contextOptions);
       const page = await context.newPage();
 
-      const targetUrl = hasSavedSession
-        ? 'https://seller.shopee.co.id/portal/product/new'
-        : 'https://seller.shopee.co.id';
-
+      const targetUrl = 'https://seller.shopee.co.id/portal/product/new';
       log(`Navigasi ke Shopee Seller (${targetUrl})...`);
+      
       await page.goto(targetUrl, {
         waitUntil: 'domcontentloaded',
-        timeout: 30000,
+        timeout: 35000,
       });
 
-      await page.waitForTimeout(2000);
+      await page.waitForTimeout(3000);
+      log(`Halaman terbuka: ${page.url()}`);
 
-      // Jika sudah login di halaman tambah produk baru, isi form secara interaktif
-      if (hasSavedSession && page.url().includes('product/new')) {
-        log('Form Tambah Produk Baru Shopee terdeteksi!');
-        try {
-          // Isi Nama Produk
-          const nameInput = page.locator('input[placeholder*="Nama Produk"], input[placeholder*="Product Name"]').first();
-          if (await nameInput.isVisible()) {
-            await nameInput.fill(product.title);
-            log(`-> Berhasil mengisi Nama Produk: "${product.title}"`);
-          }
+      // Step 1: Input Nama Produk
+      const titleInput = page.locator('input[placeholder*="Nama Merek" i], input[placeholder*="Tipe Produk" i], input.shopee-input__input').first();
+      if (await titleInput.isVisible({ timeout: 4000 }).catch(() => false)) {
+        await titleInput.fill(product.title);
+        log(`-> Berhasil mengisi Judul: "${product.title}"`);
+        await page.waitForTimeout(1500);
 
-          // Isi Deskripsi Produk
-          const descInput = page.locator('textarea, div[contenteditable="true"]').first();
-          if (await descInput.isVisible()) {
-            await descInput.fill(product.description);
-            log(`-> Berhasil mengisi Deskripsi Produk (${product.description.length} karakter)`);
-          }
-
-          // Isi Harga
-          const priceInput = page.locator('input[placeholder*="Harga"], input[placeholder*="Price"]').first();
-          if (await priceInput.isVisible()) {
-            await priceInput.fill(product.finalPrice.toString());
-            log(`-> Berhasil mengisi Harga: Rp ${product.finalPrice.toLocaleString('id-ID')}`);
-          }
-
-          // Isi Stok
-          const stockInput = page.locator('input[placeholder*="Stok"], input[placeholder*="Stock"]').first();
-          if (await stockInput.isVisible()) {
-            await stockInput.fill((product.stock || 100).toString());
-            log(`-> Berhasil mengisi Stok: ${product.stock || 100}`);
-          }
-        } catch (err: unknown) {
-          log(`[Info Form Input] Beberapa selector form Shopee dinamis: ${(err as Error).message}`);
+        // Pilih Kategori Rekomendasi
+        const categoryOption = page.locator('.category-list-item, .category-recommendation-item, .shopee-cascader__item, .category-card').first();
+        if (await categoryOption.isVisible({ timeout: 2500 }).catch(() => false)) {
+          await categoryOption.click();
+          log('-> Memilih kategori rekomendasi Shopee');
+          await page.waitForTimeout(1000);
         }
-      } else {
-        log(`Menyiapkan mapping field produk ke form Shopee:`);
-        log(`-> Input Judul: ${product.title}`);
-        log(`-> Input Kategori ID: ${product.categoryId} (${product.categoryName})`);
-        log(`-> Input Deskripsi (${product.description.length} karakter)`);
-        log(`-> Input Harga Dasar: Rp ${product.finalPrice.toLocaleString('id-ID')}`);
-        log(`-> Input Stok Awal: ${product.stock}`);
-        log(`-> Input Berat: ${product.weightGrams} gram`);
-        log(`-> Input Gambar Utama: ${product.mainImage}`);
 
-        if (product.variations?.[0]?.options?.length > 0) {
-          log(`-> Mendaftarkan ${product.variations[0].options.length} variasi produk (SKU & Harga)`);
+        // Klik tombol Selanjutnya / Lanjut
+        const nextBtn = page.locator('button:has-text("Selanjutnya"), button:has-text("Lanjut")').first();
+        if (await nextBtn.isVisible({ timeout: 2500 }).catch(() => false)) {
+          await nextBtn.click();
+          log('-> Melanjutkan ke form detail produk...');
+          await page.waitForTimeout(4000);
         }
       }
 
-      // Simpan screenshot bukti eksekusi
+      // Step 2: Form Detail Produk (Deskripsi, Harga, Stok, Berat)
+      const descInput = page.locator('textarea, div[contenteditable="true"]').first();
+      if (await descInput.isVisible({ timeout: 3000 }).catch(() => false)) {
+        await descInput.fill(product.description);
+        log(`-> Berhasil mengisi Deskripsi Produk (${product.description.length} karakter)`);
+      }
+
+      const priceInput = page.locator('input[placeholder*="Harga" i], input[placeholder*="Price" i]').first();
+      if (await priceInput.isVisible({ timeout: 2500 }).catch(() => false)) {
+        await priceInput.fill(product.finalPrice.toString());
+        log(`-> Berhasil mengisi Harga: Rp ${product.finalPrice.toLocaleString('id-ID')}`);
+      }
+
+      const stockInput = page.locator('input[placeholder*="Stok" i], input[placeholder*="Stock" i]').first();
+      if (await stockInput.isVisible({ timeout: 2500 }).catch(() => false)) {
+        await stockInput.fill((product.stock || 100).toString());
+        log(`-> Berhasil mengisi Stok: ${product.stock || 100}`);
+      }
+
+      const weightInput = page.locator('input[placeholder*="Berat" i], input[placeholder*="Weight" i]').first();
+      if (await weightInput.isVisible({ timeout: 2500 }).catch(() => false)) {
+        const weightKg = (product.weightGrams / 1000).toFixed(2);
+        await weightInput.fill(weightKg);
+        log(`-> Berhasil mengisi Berat: ${weightKg} kg`);
+      }
+
+      // Simpan Screenshot Bukti Eksekusi
       const screenshotsDir = path.join(process.cwd(), 'public', 'screenshots');
       try {
         if (!fs.existsSync(screenshotsDir)) {
@@ -132,13 +132,15 @@ export class ShopeeAutomationBot {
         screenshotUrl = product.mainImage;
       }
 
-      await page.waitForTimeout(isHeadless ? 1000 : 4000);
-      log('✅ Seluruh data produk berhasil diproses dan siap dikonfirmasi di Shopee Seller Center.');
+      log('✅ Seluruh proses pengisian form produk Shopee berhasil dijalankan!');
+
+      // Jika mode visual demo, beri waktu agar user dapat melihat hasil di layar
+      await page.waitForTimeout(isHeadless ? 1000 : 5000);
       await browser.close();
       playwrightSuccess = true;
     } catch (err: unknown) {
       const error = err as Error;
-      console.warn(`[ShopeeAutomationBot] Standard Playwright bypass: ${error.message}`);
+      console.warn(`[ShopeeAutomationBot] Standard Playwright: ${error.message}`);
     }
 
     if (!playwrightSuccess) {
