@@ -25,7 +25,10 @@ import {
   Check,
   X,
 } from 'lucide-react';
-import { ShopeeProductMapping, PublishResult } from '@/types/product';
+function formatRupiah(amount: number): string {
+  if (typeof amount !== 'number' || isNaN(amount)) return '0';
+  return Math.round(amount).toString().replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+}
 
 export default function DashboardPage() {
   const [urlInput, setUrlInput] = useState('');
@@ -333,7 +336,7 @@ export default function DashboardPage() {
                 <div>
                   <div className="flex justify-between text-xs text-slate-300 mb-1.5">
                     <span>Biaya Admin / Packaging Tambahan (Rp)</span>
-                    <span className="font-semibold text-amber-400">Rp {fixedMargin.toLocaleString('id-ID')}</span>
+                    <span className="font-semibold text-amber-400">Rp {formatRupiah(fixedMargin)}</span>
                   </div>
                   <input
                     type="number"
@@ -358,7 +361,7 @@ export default function DashboardPage() {
             </div>
 
             <p className="text-[11px] text-slate-500 mt-4 border-t border-slate-800/80 pt-3">
-              Rumus: <code>(Harga Modal × (1 + {markupPercent}%)) + Rp {fixedMargin.toLocaleString()}</code>
+              Rumus: <code>(Harga Modal × (1 + {markupPercent}%)) + Rp {formatRupiah(fixedMargin)}</code>
             </p>
           </div>
         </section>
@@ -458,13 +461,13 @@ export default function DashboardPage() {
                         <div>
                           <span className="text-slate-400 block text-[10px]">Harga Asli JakMall</span>
                           <span className="font-medium text-slate-300">
-                            Rp {p.basePrice.toLocaleString('id-ID')}
+                            Rp {formatRupiah(p.basePrice)}
                           </span>
                         </div>
                         <div>
                           <span className="text-slate-400 block text-[10px]">Harga Jual Shopee</span>
                           <span className="font-bold text-orange-400">
-                            Rp {p.finalPrice.toLocaleString('id-ID')}
+                            Rp {formatRupiah(p.finalPrice)}
                           </span>
                         </div>
                       </div>
