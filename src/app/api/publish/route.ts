@@ -5,8 +5,7 @@ import { ShopeeExcelExporter } from '@/lib/shopee/excel-exporter';
 
 export async function POST(req: NextRequest) {
   try {
-    const body = await req.json();
-    const { productId, method } = body;
+    const { productId, method, headless = false } = body;
 
     if (!productId) {
       return NextResponse.json({ success: false, error: 'Product ID wajib disertakan.' }, { status: 400 });
@@ -33,7 +32,9 @@ export async function POST(req: NextRequest) {
     }
 
     // Default: Playwright browser automation
-    const result = await ShopeeAutomationBot.publishProduct(product, { headless: true });
+    const result = await ShopeeAutomationBot.publishProduct(product, {
+      headless: Boolean(headless),
+    });
 
     if (result.success) {
       await JobStore.updateStatus(productId, 'PUBLISHED');

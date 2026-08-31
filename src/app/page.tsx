@@ -39,6 +39,7 @@ export default function DashboardPage() {
   const [currentLogs, setCurrentLogs] = useState<string[]>([]);
   const [currentScreenshot, setCurrentScreenshot] = useState<string | null>(null);
   const [isPublishing, setIsPublishing] = useState(false);
+  const [showBrowserWindow, setShowBrowserWindow] = useState(true);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
   const [activeTab, setActiveTab] = useState<'all' | 'ready' | 'published'>('all');
 
@@ -127,6 +128,7 @@ export default function DashboardPage() {
         body: JSON.stringify({
           productId: product.id,
           method: 'PLAYWRIGHT_BOT',
+          headless: !showBrowserWindow,
         }),
       });
 
@@ -210,7 +212,16 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 sm:gap-3">
+            <a
+              href="https://seller.shopee.co.id"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-orange-950/80 border border-orange-700/60 text-orange-300 hover:bg-orange-900/80 transition-colors text-xs font-medium"
+            >
+              <ExternalLink className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Shopee Seller Portal</span>
+            </a>
             <button
               onClick={() => handleDownloadExcel()}
               disabled={products.length === 0}
@@ -293,7 +304,7 @@ export default function DashboardPage() {
             <div>
               <div className="flex items-center gap-2 mb-4">
                 <Sliders className="w-5 h-5 text-amber-400" />
-                <h2 className="text-base font-semibold text-slate-100">Aturan Markup & Margin</h2>
+                <h2 className="text-base font-semibold text-slate-100">Aturan Markup & Bot Demo</h2>
               </div>
 
               <div className="space-y-4 text-sm">
@@ -324,6 +335,17 @@ export default function DashboardPage() {
                     value={fixedMargin}
                     onChange={(e) => setFixedMargin(Number(e.target.value))}
                     className="w-full px-3 py-1.5 bg-slate-950 border border-slate-800 rounded-lg text-xs text-slate-200 focus:outline-none focus:border-amber-500"
+                  />
+                </div>
+
+                {/* Visible Window Toggle for Local Live Demo */}
+                <div className="pt-2 border-t border-slate-800 flex items-center justify-between">
+                  <span className="text-xs text-slate-300">Buka Jendela Chrome Fisik (Local Demo)</span>
+                  <input
+                    type="checkbox"
+                    checked={showBrowserWindow}
+                    onChange={(e) => setShowBrowserWindow(e.target.checked)}
+                    className="w-4 h-4 rounded border-slate-700 bg-slate-950 accent-orange-500 cursor-pointer"
                   />
                 </div>
               </div>

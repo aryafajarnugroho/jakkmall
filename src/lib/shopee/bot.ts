@@ -29,27 +29,31 @@ export class ShopeeAutomationBot {
       log('Memeriksa browser engine Playwright Chromium...');
       const { chromium } = await import('playwright');
 
+      const isHeadless = options.headless ?? false;
+      log(`Inisialisasi browser Playwright Chromium (${isHeadless ? 'Background Headless' : 'Visual Window Mode'})...`);
+
       const browser = await chromium.launch({
-        headless: options.headless ?? true,
-        args: ['--disable-blink-features=AutomationControlled', '--no-sandbox'],
+        headless: isHeadless,
+        slowMo: isHeadless ? 0 : 300,
+        args: ['--disable-blink-features=AutomationControlled', '--no-sandbox', '--start-maximized'],
       });
 
       const context = await browser.newContext({
-        viewport: { width: 1280, height: 800 },
+        viewport: isHeadless ? { width: 1280, height: 800 } : null,
         userAgent:
           'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
       });
 
       const page = await context.newPage();
 
-      log('Navigasi ke Shopee Seller Center Portal...');
+      log('Navigasi ke Shopee Seller Center Portal (seller.shopee.co.id)...');
       await page.goto('https://seller.shopee.co.id', {
         waitUntil: 'domcontentloaded',
         timeout: 25000,
       });
 
       log('Memeriksa autentikasi & halaman dashboard...');
-      await page.waitForTimeout(1500);
+      await page.waitForTimeout(isHeadless ? 1500 : 4000);
 
       log(`Menyiapkan mapping field produk ke form Shopee:`);
       log(`-> Input Judul: ${product.title}`);
