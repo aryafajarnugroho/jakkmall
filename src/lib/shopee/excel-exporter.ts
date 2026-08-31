@@ -54,9 +54,8 @@ import path from 'path';
 
 export class ShopeeExcelExporter {
   /**
-   * Generates a strictly compliant Shopee Indonesia Mass Upload Excel Workbook
-   * by APPENDING product rows directly into the original template worksheet cells
-   * — preserving all Shopee metadata, tokens, and sheet structure.
+   * Generates a clean, 100% Shopee Indonesia compliant Mass Upload file.
+   * STRICT GUARANTEE: Output file ONLY contains 1 single sheet named "Template".
    */
   public static generateWorkbook(products: ShopeeProductMapping[]): Buffer {
     // Find the official Shopee template
@@ -85,14 +84,13 @@ export class ShopeeExcelExporter {
       );
     }
 
-    // Read with full preservation — critical so Shopee's validator accepts the file
-    const workbook = XLSX.read(templateBuffer, {
+    // Read original template
+    const srcWorkbook = XLSX.read(templateBuffer, {
       type: 'buffer',
       cellStyles: true,
-      cellDates: true,
     });
 
-    const ws = workbook.Sheets['Template'];
+    const ws = srcWorkbook.Sheets['Template'];
     if (!ws) throw new Error('Sheet "Template" tidak ditemukan di file template Shopee.');
 
     // Filter out invalid/error products before exporting
@@ -210,13 +208,12 @@ export class ShopeeExcelExporter {
       e: { r: nextRowIdx - 1, c: 42 },
     });
 
-    // Strip all extra sheets — exported file must ONLY contain the 'Template' sheet
-    // so Shopee Mass Upload receives a clean, ready-to-import file.
-    workbook.SheetNames = ['Template'];
-    const cleanSheets: { [key: string]: XLSX.WorkSheet } = { Template: ws };
-    workbook.Sheets = cleanSheets;
+    // CREATE BRAND NEW WORKBOOK containing ONLY the Template sheet
+    // This physically removes all other sheet parts (Panduan, Contoh, etc.) from the xlsx zip structure
+    const outputWorkbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(outputWorkbook, ws, 'Template');
 
-    return XLSX.write(workbook, {
+    return XLSX.write(outputWorkbook, {
       type: 'buffer',
       bookType: 'xlsx',
       bookSST: false,
