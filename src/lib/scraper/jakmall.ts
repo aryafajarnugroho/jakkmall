@@ -180,20 +180,24 @@ export class JakmallScraper {
    * Browser automation scraper for heavy JS pages
    */
   private static async scrapeWithPlaywright(url: string): Promise<JakmallProduct> {
-    const { chromium } = await import('playwright');
-    const browser = await chromium.launch({ headless: true });
     try {
-      const context = await browser.newContext({ userAgent: this.userAgent });
-      const page = await context.newPage();
-      await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 20000 });
-      await page.waitForTimeout(1500);
+      const { chromium } = await import('playwright');
+      const browser = await chromium.launch({ headless: true });
+      try {
+        const context = await browser.newContext({ userAgent: this.userAgent });
+        const page = await context.newPage();
+        await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 20000 });
+        await page.waitForTimeout(1500);
 
-      const html = await page.content();
-      await browser.close();
-      return this.parseHtml(html, url);
+        const html = await page.content();
+        await browser.close();
+        return this.parseHtml(html, url);
+      } catch (err) {
+        await browser.close();
+        throw err;
+      }
     } catch (err) {
-      await browser.close();
-      throw err;
+      throw new Error(`Playwright engine unavailable: ${(err as Error).message}`);
     }
   }
 
