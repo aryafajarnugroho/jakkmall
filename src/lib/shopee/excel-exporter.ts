@@ -44,7 +44,7 @@ export class ShopeeExcelExporter {
 
     // Append product data rows starting at row 7
     products.forEach((product) => {
-      const weightKg = (product.weightGrams / 1000).toFixed(2).replace('.', ',');
+      const weightKg = parseFloat((product.weightGrams / 1000).toFixed(2));
       const variationList = product.variations?.[0]?.options || [];
 
       if (variationList.length > 1) {
