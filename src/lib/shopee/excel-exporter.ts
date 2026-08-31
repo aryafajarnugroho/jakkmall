@@ -6,178 +6,157 @@ import path from 'path';
 export class ShopeeExcelExporter {
   /**
    * Generates a strictly compliant Shopee Indonesia Mass Upload Excel Workbook
-   * using the official Shopee Basic Template with embedded tokens & multi-sheet structure.
+   * by APPENDING rows directly into the original template worksheet cells
+   * instead of replacing the sheet — preserving all metadata Shopee validates.
    */
   public static generateWorkbook(products: ShopeeProductMapping[]): Buffer {
+    // Find the official Shopee template
     const candidates = [
       path.join(process.cwd(), 'src', 'templates', 'shopee_basic_template.xlsx'),
-      path.join(process.cwd(), 'Shopee_mass_upload_2026-08-31_basic_template (1).xlsx'),
       path.join(process.cwd(), 'Shopee_mass_upload_2026-08-31_basic_template.xlsx'),
-      path.join(process.cwd(), 'Shopee_Mass_Upload_Ready_To_Import.xlsx'),
     ];
 
-    let workbook: XLSX.WorkBook | null = null;
-    let templateRows: (string | number)[][] = [];
-
+    let templateBuffer: Buffer | null = null;
     for (const candidate of candidates) {
       try {
         if (fs.existsSync(candidate)) {
-          const buffer = fs.readFileSync(candidate);
-          workbook = XLSX.read(buffer, { type: 'buffer' });
-          if (workbook && workbook.Sheets['Template']) {
-            const ws = workbook.Sheets['Template'];
-            templateRows = XLSX.utils.sheet_to_json(ws, { header: 1 });
-            templateRows = templateRows.slice(0, 6);
-            break;
-          }
+          templateBuffer = fs.readFileSync(candidate);
+          break;
         }
-      } catch (err) {
-        console.warn(`[ShopeeExcelExporter] Could not read candidate ${candidate}:`, err);
+      } catch {
+        // try next
       }
     }
 
-    // If template file cannot be loaded, safely construct standard 3-tier official Shopee format
-    if (!workbook || templateRows.length < 6) {
-      workbook = XLSX.utils.book_new();
-      templateRows = this.buildFallbackHeaderRows();
+    if (!templateBuffer) {
+      throw new Error(
+        'Template resmi Shopee tidak ditemukan di src/templates/shopee_basic_template.xlsx. ' +
+        'Pastikan file template Shopee sudah tersedia di folder project.'
+      );
     }
 
-    // Append product data rows starting at row 7
-    // Filter out invalid/error products before exporting
-    const validProducts = products.filter(p =>
-      p.title &&
-      p.title !== 'Halaman Tidak Ditemukan' &&
-      p.title !== 'Page Not Found' &&
-      p.finalPrice > 0 &&
-      p.sku
+    // Read with full cell preservation — critical for Shopee validator
+    const workbook = XLSX.read(templateBuffer, {
+      type: 'buffer',
+      cellStyles: true,
+      cellDates: true,
+    });
+
+    const ws = workbook.Sheets['Template'];
+    if (!ws) throw new Error('Sheet "Template" tidak ditemukan di file template Shopee.');
+
+    // Find how many rows are already in the sheet (rows 1-6 are headers)
+    const range = XLSX.utils.decode_range(ws['!ref'] || 'A1:AQ6');
+    // Data rows start at row index 6 (row 7 in Excel, 0-indexed)
+    let nextRowIdx = Math.max(range.e.r + 1, 6);
+
+    // Filter out invalid/error products
+    const validProducts = products.filter(
+      (p) =>
+        p.title &&
+        !['halaman tidak ditemukan', 'page not found', '404'].some((t) =>
+          p.title.toLowerCase().includes(t)
+        ) &&
+        p.finalPrice > 0 &&
+        p.sku
     );
 
+    if (validProducts.length === 0) {
+      throw new Error(
+        'Tidak ada produk valid untuk diekspor. Hapus produk error dan tambahkan produk dari URL JakMall yang benar.'
+      );
+    }
+
+    // Helper: write a cell value with correct type into the worksheet
+    const writeCell = (
+      ws: XLSX.WorkSheet,
+      row: number,
+      col: number,
+      value: string | number | null | undefined
+    ) => {
+      if (value === null || value === undefined || value === '') return;
+      const cellRef = XLSX.utils.encode_cell({ r: row, c: col });
+      const cellType = typeof value === 'number' ? 'n' : 's';
+      ws[cellRef] = { v: value, t: cellType };
+    };
+
     validProducts.forEach((product) => {
-      // Cap weight: Shopee requires 0.01 - 500 kg. Default 0.3 kg if out of range.
+      // Cap weight: Shopee requires 0.01 - 500 kg
       const rawKg = product.weightGrams / 1000;
       const weightKg = rawKg >= 0.01 && rawKg <= 500 ? parseFloat(rawKg.toFixed(2)) : 0.3;
+
       const variationList = product.variations?.[0]?.options || [];
 
       if (variationList.length > 1) {
-        // Multi-variation product
         variationList.forEach((variant, idx) => {
-          const row = new Array(43).fill('');
+          const r = nextRowIdx;
           if (idx === 0) {
-            row[0] = ''; // Category left empty or category code (Shopee auto-recommends)
-            row[1] = product.title.substring(0, 255);
-            row[2] = product.description.substring(0, 3000);
-            row[7] = 1; // Min purchase
-            row[8] = product.sku;
-            row[9] = 'No (ID)';
-            row[10] = `INT-${product.sku}`;
-            row[11] = 'Model';
-            row[12] = variant.optionName;
-            // NOTE: Shopee Mass Upload hanya menerima URL CDN Shopee (cf.shopee.co.id)
-            // Foto dari URL eksternal (Unsplash, JakMall, dll) akan ditolak otomatis.
-            // Kosongkan kolom foto — isi manual di halaman Edit Produk setelah import berhasil.
-            row[13] = '';
-            row[16] = variant.price || product.finalPrice;
-            row[17] = variant.stock || product.stock;
-            row[18] = variant.sku || `${product.sku}-${idx + 1}`;
-            row[22] = ''; // Foto Sampul — isi manual setelah import
-            row[31] = weightKg;
-            row[35] = 'Aktif'; // Same day
-            row[36] = 'Aktif'; // Next day
-            row[37] = 'Aktif'; // Reguler
-            row[38] = 'Aktif'; // Hemat
-            row[39] = 'Aktif'; // Instant
-            row[40] = 'Aktif'; // Instant Prioritas
+            writeCell(ws, r, 1, product.title.substring(0, 255));
+            writeCell(ws, r, 2, product.description.substring(0, 3000));
+            writeCell(ws, r, 7, 1);
+            writeCell(ws, r, 8, product.sku);
+            writeCell(ws, r, 9, 'No (ID)');
+            writeCell(ws, r, 10, `INT-${product.sku}`);
+            writeCell(ws, r, 11, 'Model');
+            writeCell(ws, r, 12, variant.optionName);
+            writeCell(ws, r, 16, variant.price || product.finalPrice);
+            writeCell(ws, r, 17, variant.stock || product.stock);
+            writeCell(ws, r, 18, variant.sku || `${product.sku}-${idx + 1}`);
+            writeCell(ws, r, 22, product.mainImage || '');
+            writeCell(ws, r, 23, product.images[1] || '');
+            writeCell(ws, r, 31, weightKg);
+            writeCell(ws, r, 35, 'Aktif');
+            writeCell(ws, r, 36, 'Aktif');
+            writeCell(ws, r, 37, 'Aktif');
+            writeCell(ws, r, 38, 'Aktif');
+            writeCell(ws, r, 39, 'Aktif');
+            writeCell(ws, r, 40, 'Aktif');
           } else {
-            // Subsequent variation rows only require integration code, variation name, option, price, stock, sku
-            row[10] = `INT-${product.sku}`;
-            row[11] = 'Model';
-            row[12] = variant.optionName;
-            row[13] = variant.image || product.mainImage || '';
-            row[16] = variant.price || product.finalPrice;
-            row[17] = variant.stock || product.stock;
-            row[18] = variant.sku || `${product.sku}-${idx + 1}`;
+            writeCell(ws, r, 10, `INT-${product.sku}`);
+            writeCell(ws, r, 11, 'Model');
+            writeCell(ws, r, 12, variant.optionName);
+            writeCell(ws, r, 16, variant.price || product.finalPrice);
+            writeCell(ws, r, 17, variant.stock || product.stock);
+            writeCell(ws, r, 18, variant.sku || `${product.sku}-${idx + 1}`);
           }
-          templateRows.push(row);
+          nextRowIdx++;
         });
       } else {
-        // Single standard product
-        const row = new Array(43).fill('');
-        row[0] = ''; // Category
-        row[1] = product.title.substring(0, 255);
-        row[2] = product.description.substring(0, 3000);
-        row[7] = 1; // Min purchase
-        row[8] = product.sku;
-        row[9] = 'No (ID)';
-        row[16] = product.finalPrice;
-        row[17] = product.stock || 100;
-        row[18] = product.sku;
-        // Include mainImage from JakMall CDN — Shopee will attempt to download it.
-        // If the URL is inaccessible, Shopee will skip the photo but still import the product.
-        row[22] = product.mainImage || ''; // Foto Sampul
-        row[23] = product.images[1] || ''; // Foto Produk 1
-        row[24] = product.images[2] || ''; // Foto Produk 2
-        row[31] = weightKg;
-        row[35] = 'Aktif';
-        row[36] = 'Aktif';
-        row[37] = 'Aktif';
-        row[38] = 'Aktif';
-        row[39] = 'Aktif';
-        row[40] = 'Aktif';
-        templateRows.push(row);
+        // Single product (no variation)
+        const r = nextRowIdx;
+        writeCell(ws, r, 1, product.title.substring(0, 255));
+        writeCell(ws, r, 2, product.description.substring(0, 3000));
+        writeCell(ws, r, 7, 1);
+        writeCell(ws, r, 8, product.sku);
+        writeCell(ws, r, 9, 'No (ID)');
+        writeCell(ws, r, 16, product.finalPrice);
+        writeCell(ws, r, 17, product.stock || 100);
+        writeCell(ws, r, 18, product.sku);
+        writeCell(ws, r, 22, product.mainImage || '');
+        writeCell(ws, r, 23, product.images[1] || '');
+        writeCell(ws, r, 24, product.images[2] || '');
+        writeCell(ws, r, 31, weightKg);
+        writeCell(ws, r, 35, 'Aktif');
+        writeCell(ws, r, 36, 'Aktif');
+        writeCell(ws, r, 37, 'Aktif');
+        writeCell(ws, r, 38, 'Aktif');
+        writeCell(ws, r, 39, 'Aktif');
+        writeCell(ws, r, 40, 'Aktif');
+        nextRowIdx++;
       }
     });
 
-    const newWorksheet = XLSX.utils.aoa_to_sheet(templateRows);
-    workbook.Sheets['Template'] = newWorksheet;
+    // Update the sheet's range to include the new data rows
+    const newRange = XLSX.utils.encode_range({
+      s: { r: 0, c: 0 },
+      e: { r: nextRowIdx - 1, c: 42 },
+    });
+    ws['!ref'] = newRange;
 
-    if (!workbook.SheetNames.includes('Template')) {
-      XLSX.utils.book_append_sheet(workbook, newWorksheet, 'Template');
-    }
-
-    return XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
-  }
-
-  private static buildFallbackHeaderRows(): (string | number)[][] {
-    const row1 = [
-      'ps_category|0|0', 'ps_product_name|1|0', 'ps_product_description|1|0',
-      'ps_maximum_purchase_quantity|0|0', 'ps_maximum_purchase_quantity_start_date|0|0',
-      'ps_maximum_purchase_quantity_time_period|0|0', 'ps_maximum_purchase_quantity_end_date|0|0',
-      'ps_minimum_purchase_quantity|0|0', 'ps_sku_parent_short|0|0', 'ps_dangerous_goods|0|0',
-      'et_title_variation_integration_no|0|0', 'et_title_variation_1|0|0',
-      'et_title_option_for_variation_1|0|0', 'et_title_image_per_variation|0|3',
-      'et_title_variation_2|0|0', 'et_title_option_for_variation_2|0|0',
-      'ps_price|1|1', 'ps_stock|0|1', 'ps_sku_short|0|0', 'ps_new_size_chart|0|1',
-      'et_title_size_chart|0|3', 'ps_gtin_code|0|0', 'ps_item_cover_image|1|3',
-      'ps_item_image_1|0|3', 'ps_item_image_2|0|3', 'ps_item_image_3|0|3',
-      'ps_item_image_4|0|3', 'ps_item_image_5|0|3', 'ps_item_image_6|0|3',
-      'ps_item_image_7|0|3', 'ps_item_image_8|0|3', 'ps_weight|1|1',
-      'ps_length|0|1', 'ps_width|0|1', 'ps_height|0|1', 'channel_id.8001|0|0',
-      'channel_id.8002|0|0', 'channel_id.8003|0|0', 'channel_id.8005|0|0',
-      'channel_id.8007|0|0', 'channel_id.8008|0|0', 'ps_product_pre_order_dts|0|1',
-      'et_title_reason|0|0'
-    ];
-    const row2 = ['basic', '3b35da8ca9eeb491f02729b66fb6e8f7', '0', '391814440'];
-    const row3 = [
-      'Kategori', 'Nama Produk', 'Deskripsi Produk', 'Maks. Jumlah Pembelian',
-      'Maks. Jumlah Pembelian - Tanggal Mulai', 'Maks. Jumlah Pembelian - Jumlah Hari',
-      'Maks. Jumlah Pembelian - Tanggal Berakhir', 'Min. Jumlah Pembelian', 'SKU Induk',
-      'Produk Berbahaya', 'Kode Integrasi Variasi', 'Nama Variasi 1', 'Varian untuk Variasi 1',
-      'Foto Produk per Varian', 'Nama Variasi 2', 'Varian untuk Variasi 2', 'Harga', 'Stok',
-      'Kode Variasi', 'Template Panduan Ukuran', 'Foto Panduan Ukuran', 'GTIN', 'Foto Sampul',
-      'Foto Produk 1', 'Foto Produk 2', 'Foto Produk 3', 'Foto Produk 4', 'Foto Produk 5',
-      'Foto Produk 6', 'Foto Produk 7', 'Foto Produk 8', 'Berat', 'Panjang', 'Lebar', 'Tinggi',
-      'Same Day', 'Next Day', 'Reguler (Cashless)', 'Hemat Kargo', 'Instant', 'Instant Prioritas',
-      'Dikirim Dalam Pre-order', 'Alasan Gagal'
-    ];
-    const row4 = new Array(43).fill('Opsional');
-    row4[1] = 'Wajib';
-    row4[2] = 'Wajib';
-    row4[16] = 'Wajib';
-    row4[22] = 'Wajib';
-    row4[31] = 'Wajib';
-    const row5 = new Array(43).fill('');
-    const row6 = new Array(43).fill('');
-
-    return [row1, row2, row3, row4, row5, row6];
+    return XLSX.write(workbook, {
+      type: 'buffer',
+      bookType: 'xlsx',
+      bookSST: false,
+    });
   }
 }
