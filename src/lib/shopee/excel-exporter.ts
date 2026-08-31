@@ -9,20 +9,35 @@ export class ShopeeExcelExporter {
    * using the official Shopee Basic Template with embedded tokens & multi-sheet structure.
    */
   public static generateWorkbook(products: ShopeeProductMapping[]): Buffer {
-    const templateFilePath = path.join(process.cwd(), 'src/templates/shopee_basic_template.xlsx');
+    const candidates = [
+      path.join(process.cwd(), 'src', 'templates', 'shopee_basic_template.xlsx'),
+      path.join(process.cwd(), 'Shopee_mass_upload_2026-08-31_basic_template (1).xlsx'),
+      path.join(process.cwd(), 'Shopee_mass_upload_2026-08-31_basic_template.xlsx'),
+      path.join(process.cwd(), 'Shopee_Mass_Upload_Ready_To_Import.xlsx'),
+    ];
 
-    let workbook: XLSX.WorkBook;
+    let workbook: XLSX.WorkBook | null = null;
     let templateRows: (string | number)[][] = [];
 
-    if (templateFilePath) {
-      // Load the authentic official Shopee workbook template
-      workbook = XLSX.readFile(templateFilePath);
-      const ws = workbook.Sheets['Template'];
-      templateRows = XLSX.utils.sheet_to_json(ws, { header: 1 });
-      // Keep only rows 1-6 (headers, tokens, format guide)
-      templateRows = templateRows.slice(0, 6);
-    } else {
-      // Fallback: construct standard official Shopee workbook
+    for (const candidate of candidates) {
+      try {
+        if (fs.existsSync(candidate)) {
+          const buffer = fs.readFileSync(candidate);
+          workbook = XLSX.read(buffer, { type: 'buffer' });
+          if (workbook && workbook.Sheets['Template']) {
+            const ws = workbook.Sheets['Template'];
+            templateRows = XLSX.utils.sheet_to_json(ws, { header: 1 });
+            templateRows = templateRows.slice(0, 6);
+            break;
+          }
+        }
+      } catch (err) {
+        console.warn(`[ShopeeExcelExporter] Could not read candidate ${candidate}:`, err);
+      }
+    }
+
+    // If template file cannot be loaded, safely construct standard 3-tier official Shopee format
+    if (!workbook || templateRows.length < 6) {
       workbook = XLSX.utils.book_new();
       templateRows = this.buildFallbackHeaderRows();
     }
