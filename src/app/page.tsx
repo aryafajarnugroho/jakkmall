@@ -496,28 +496,21 @@ export default function DashboardPage() {
                         <Edit3 className="w-4 h-4" />
                       </button>
                       <button
-                        onClick={() => handleDownloadExcel(p.id)}
-                        className="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-emerald-400 transition-colors"
-                        title="Download Shopee Mass Upload (Excel)"
-                      >
-                        <Download className="w-4 h-4" />
-                      </button>
-                      <button
                         onClick={() => handleDelete(p.id)}
                         className="p-2 rounded-lg bg-slate-800 hover:bg-red-950/60 text-red-400 transition-colors"
-                        title="Hapus"
+                        title="Hapus Produk"
                       >
                         <Trash2 className="w-4 h-4" />
                       </button>
                     </div>
 
                     <button
-                      onClick={() => handlePublishBot(p)}
-                      disabled={isPublishing}
-                      className="px-3.5 py-2 rounded-xl bg-orange-500 hover:bg-orange-600 text-white text-xs font-semibold flex items-center gap-1.5 shadow-md shadow-orange-500/20 transition-all disabled:opacity-50"
+                      onClick={() => handleDownloadExcel(p.id)}
+                      className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold flex items-center gap-2 shadow-md shadow-emerald-600/20 transition-all active:scale-95"
+                      title="Download template Shopee Mass Upload khusus produk ini"
                     >
-                      <Bot className="w-3.5 h-3.5" />
-                      <span>Publish Bot</span>
+                      <FileSpreadsheet className="w-4 h-4 text-emerald-100" />
+                      <span>Export Excel (.xlsx)</span>
                     </button>
                   </div>
                 </div>
