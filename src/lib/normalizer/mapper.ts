@@ -1,4 +1,5 @@
 import { JakmallProduct, ShopeeProductMapping } from '@/types/product';
+import { CategoryMatcher } from '@/lib/normalizer/category-matcher';
 
 export interface NormalizerOptions {
   markupPercent?: number; // e.g. 15 for 15%
@@ -57,13 +58,15 @@ export class ProductNormalizer {
 
     const id = 'SP-' + Date.now().toString(36) + '-' + Math.random().toString(36).substring(2, 6);
 
+    const matchedCat = CategoryMatcher.matchCategoryId(formattedTitle, jakmall.category);
+
     return {
       id,
       sourceUrl: jakmall.sourceUrl,
       title: formattedTitle,
       description: formattedDescription,
-      categoryName: jakmall.category || 'Elektronik & Aksesoris',
-      categoryId: 100012, // Default Shopee General Category ID
+      categoryName: matchedCat.name,
+      categoryId: matchedCat.id,
       basePrice: jakmall.originalPrice,
       markupPercent,
       fixedMargin,

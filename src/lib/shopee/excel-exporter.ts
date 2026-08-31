@@ -1,5 +1,6 @@
 import * as XLSX from 'xlsx';
 import { ShopeeProductMapping } from '@/types/product';
+import { CategoryMatcher } from '@/lib/normalizer/category-matcher';
 import fs from 'fs';
 import path from 'path';
 
@@ -82,6 +83,7 @@ export class ShopeeExcelExporter {
       // Normalise weight: 0.1 - 50 kg, default 0.3 kg
       const rawKg = (product.weightGrams || 300) / 1000;
       const weightKg = rawKg >= 0.05 && rawKg <= 50 ? parseFloat(rawKg.toFixed(2)) : 0.3;
+      const catId = product.categoryId || CategoryMatcher.matchCategoryId(product.title, product.categoryName).id;
 
       const variationList = product.variations?.[0]?.options || [];
       const hasVariations = variationList.length > 1;
@@ -91,6 +93,7 @@ export class ShopeeExcelExporter {
           const r = nextRowIdx;
 
           if (idx === 0) {
+            writeCell(r, 0, catId);                                     // Kategori - WAJIB Shopee Category ID
             writeCell(r, 1, product.title.substring(0, 255));           // Nama Produk
             writeCell(r, 2, product.description.substring(0, 3000));    // Deskripsi Produk
             writeCell(r, 8, product.sku);                               // SKU Induk
@@ -116,6 +119,7 @@ export class ShopeeExcelExporter {
       } else {
         const r = nextRowIdx;
 
+        writeCell(r, 0, catId);                                         // Kategori - WAJIB Shopee Category ID
         writeCell(r, 1, product.title.substring(0, 255));               // Nama Produk - WAJIB
         writeCell(r, 2, product.description.substring(0, 3000));        // Deskripsi - WAJIB
         writeCell(r, 8, product.sku);                                   // SKU Induk
