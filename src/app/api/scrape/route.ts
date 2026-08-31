@@ -28,7 +28,23 @@ export async function POST(req: NextRequest) {
       titleSuffix,
     });
 
-    // Step 3: Save to storage (Supabase or Local)
+    // Step 3: Validate product is real (not a 404/error page)
+    const invalidTitles = ['halaman tidak ditemukan', 'page not found', '404', 'not found'];
+    if (invalidTitles.some(t => shopeeProduct.title.toLowerCase().includes(t))) {
+      return NextResponse.json({
+        success: false,
+        error: `URL tidak mengarah ke produk yang valid. Judul yang diekstrak: "${shopeeProduct.title}". Pastikan URL adalah halaman produk JakMall yang benar.`,
+      }, { status: 400 });
+    }
+
+    if (!shopeeProduct.finalPrice || shopeeProduct.finalPrice <= 0) {
+      return NextResponse.json({
+        success: false,
+        error: 'Harga produk tidak berhasil diekstrak. Coba URL produk JakMall yang lain.',
+      }, { status: 400 });
+    }
+
+    // Step 4: Save to storage (Supabase or Local)
     await JobStore.save(shopeeProduct);
 
     return NextResponse.json({

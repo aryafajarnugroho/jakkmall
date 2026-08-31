@@ -43,8 +43,19 @@ export class ShopeeExcelExporter {
     }
 
     // Append product data rows starting at row 7
-    products.forEach((product) => {
-      const weightKg = parseFloat((product.weightGrams / 1000).toFixed(2));
+    // Filter out invalid/error products before exporting
+    const validProducts = products.filter(p =>
+      p.title &&
+      p.title !== 'Halaman Tidak Ditemukan' &&
+      p.title !== 'Page Not Found' &&
+      p.finalPrice > 0 &&
+      p.sku
+    );
+
+    validProducts.forEach((product) => {
+      // Cap weight: Shopee requires 0.01 - 500 kg. Default 0.3 kg if out of range.
+      const rawKg = product.weightGrams / 1000;
+      const weightKg = rawKg >= 0.01 && rawKg <= 500 ? parseFloat(rawKg.toFixed(2)) : 0.3;
       const variationList = product.variations?.[0]?.options || [];
 
       if (variationList.length > 1) {
@@ -100,10 +111,11 @@ export class ShopeeExcelExporter {
         row[16] = product.finalPrice;
         row[17] = product.stock || 100;
         row[18] = product.sku;
-        // NOTE: Shopee Mass Upload hanya menerima URL CDN Shopee sendiri di kolom foto.
-        // URL dari CDN lain (Unsplash, JakMall, dst) otomatis ditolak dan membuat baris Gagal.
-        // Biarkan kosong — upload foto manual di halaman Edit Produk Shopee setelah import berhasil.
-        row[22] = ''; // Foto Sampul — isi manual setelah import
+        // Include mainImage from JakMall CDN — Shopee will attempt to download it.
+        // If the URL is inaccessible, Shopee will skip the photo but still import the product.
+        row[22] = product.mainImage || ''; // Foto Sampul
+        row[23] = product.images[1] || ''; // Foto Produk 1
+        row[24] = product.images[2] || ''; // Foto Produk 2
         row[31] = weightKg;
         row[35] = 'Aktif';
         row[36] = 'Aktif';
