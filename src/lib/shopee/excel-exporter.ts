@@ -54,8 +54,9 @@ import path from 'path';
 
 export class ShopeeExcelExporter {
   /**
-   * Generates a clean, 100% Shopee Indonesia compliant Mass Upload file.
-   * STRICT GUARANTEE: Output file ONLY contains 1 single sheet named "Template".
+   * Generates a 100% Shopee compliant Mass Upload workbook.
+   * Keeps all official sheets & hidden validator sheets intact so Shopee does not reject the file with "Invalid file".
+   * Sets the active tab to "Template" so it opens directly to the product table.
    */
   public static generateWorkbook(products: ShopeeProductMapping[]): Buffer {
     // Find the official Shopee template
@@ -84,13 +85,13 @@ export class ShopeeExcelExporter {
       );
     }
 
-    // Read original template
-    const srcWorkbook = XLSX.read(templateBuffer, {
+    // Read original template with all sheets (Panduan, Template, HiddenShopBrand, HiddenTax, etc.)
+    const workbook = XLSX.read(templateBuffer, {
       type: 'buffer',
       cellStyles: true,
     });
 
-    const ws = srcWorkbook.Sheets['Template'];
+    const ws = workbook.Sheets['Template'];
     if (!ws) throw new Error('Sheet "Template" tidak ditemukan di file template Shopee.');
 
     // Filter out invalid/error products before exporting
@@ -208,12 +209,8 @@ export class ShopeeExcelExporter {
       e: { r: nextRowIdx - 1, c: 42 },
     });
 
-    // CREATE BRAND NEW WORKBOOK containing ONLY the Template sheet
-    // This physically removes all other sheet parts (Panduan, Contoh, etc.) from the xlsx zip structure
-    const outputWorkbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(outputWorkbook, ws, 'Template');
-
-    return XLSX.write(outputWorkbook, {
+    // Keep ALL 7 sheets intact so Shopee's server-side validator recognizes the official template
+    return XLSX.write(workbook, {
       type: 'buffer',
       bookType: 'xlsx',
       bookSST: false,
