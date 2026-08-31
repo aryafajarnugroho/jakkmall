@@ -203,9 +203,15 @@ export default function DashboardPage() {
               <ShoppingBag className="w-5 h-5 text-white" />
             </div>
             <div>
-              <h1 className="text-lg font-bold bg-gradient-to-r from-white via-slate-200 to-slate-400 bg-clip-text text-transparent">
-                JakMall ➔ Shopee Automation Hub
-              </h1>
+              <div className="flex items-center gap-2">
+                <h1 className="text-lg font-bold bg-gradient-to-r from-white via-slate-200 to-slate-400 bg-clip-text text-transparent">
+                  JakMall ➔ Shopee Automation Hub
+                </h1>
+                <span className="hidden md:inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-medium bg-emerald-950/80 text-emerald-300 border border-emerald-700/60">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                  <span>Shopee: aryafajarn9</span>
+                </span>
+              </div>
               <p className="text-xs text-slate-400">
                 PoC Assessment — Buruh Ketik Candidate Test
               </p>
