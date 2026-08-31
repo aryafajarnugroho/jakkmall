@@ -25,6 +25,8 @@ import {
   Check,
   X,
 } from 'lucide-react';
+import { ShopeeProductMapping, PublishResult } from '@/types/product';
+
 function formatRupiah(amount: number): string {
   if (typeof amount !== 'number' || isNaN(amount)) return '0';
   return Math.round(amount).toString().replace(/\B(?=(\d{3})+(?!\d))/g, '.');

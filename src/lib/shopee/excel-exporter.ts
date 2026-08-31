@@ -9,20 +9,7 @@ export class ShopeeExcelExporter {
    * using the official Shopee Basic Template with embedded tokens & multi-sheet structure.
    */
   public static generateWorkbook(products: ShopeeProductMapping[]): Buffer {
-    // Look for official template
-    const templateCandidates = [
-      path.join(process.cwd(), 'src', 'templates', 'shopee_basic_template.xlsx'),
-      path.join(process.cwd(), 'Shopee_mass_upload_2026-08-31_basic_template.xlsx'),
-      path.join(process.cwd(), 'public', 'templates', 'shopee_basic_template.xlsx'),
-    ];
-
-    let templateFilePath = '';
-    for (const p of templateCandidates) {
-      if (fs.existsSync(p)) {
-        templateFilePath = p;
-        break;
-      }
-    }
+    const templateFilePath = path.join(process.cwd(), 'src/templates/shopee_basic_template.xlsx');
 
     let workbook: XLSX.WorkBook;
     let templateRows: (string | number)[][] = [];
