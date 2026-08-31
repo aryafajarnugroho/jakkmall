@@ -210,6 +210,12 @@ export class ShopeeExcelExporter {
       e: { r: nextRowIdx - 1, c: 42 },
     });
 
+    // Strip all extra sheets — exported file must ONLY contain the 'Template' sheet
+    // so Shopee Mass Upload receives a clean, ready-to-import file.
+    workbook.SheetNames = ['Template'];
+    const cleanSheets: { [key: string]: XLSX.WorkSheet } = { Template: ws };
+    workbook.Sheets = cleanSheets;
+
     return XLSX.write(workbook, {
       type: 'buffer',
       bookType: 'xlsx',
