@@ -61,15 +61,14 @@ export class ShopeeExcelExporter {
             row[10] = `INT-${product.sku}`;
             row[11] = 'Model';
             row[12] = variant.optionName;
-            row[13] = variant.image || product.mainImage || '';
+            // NOTE: Shopee Mass Upload hanya menerima URL CDN Shopee (cf.shopee.co.id)
+            // Foto dari URL eksternal (Unsplash, JakMall, dll) akan ditolak otomatis.
+            // Kosongkan kolom foto — isi manual di halaman Edit Produk setelah import berhasil.
+            row[13] = '';
             row[16] = variant.price || product.finalPrice;
             row[17] = variant.stock || product.stock;
             row[18] = variant.sku || `${product.sku}-${idx + 1}`;
-            row[22] = product.mainImage || '';
-            row[23] = product.images[1] || '';
-            row[24] = product.images[2] || '';
-            row[25] = product.images[3] || '';
-            row[26] = product.images[4] || '';
+            row[22] = ''; // Foto Sampul — isi manual setelah import
             row[31] = weightKg;
             row[35] = 'Aktif'; // Same day
             row[36] = 'Aktif'; // Next day
@@ -101,11 +100,10 @@ export class ShopeeExcelExporter {
         row[16] = product.finalPrice;
         row[17] = product.stock || 100;
         row[18] = product.sku;
-        row[22] = product.mainImage || '';
-        row[23] = product.images[1] || '';
-        row[24] = product.images[2] || '';
-        row[25] = product.images[3] || '';
-        row[26] = product.images[4] || '';
+        // NOTE: Shopee Mass Upload hanya menerima URL CDN Shopee sendiri di kolom foto.
+        // URL dari CDN lain (Unsplash, JakMall, dst) otomatis ditolak dan membuat baris Gagal.
+        // Biarkan kosong — upload foto manual di halaman Edit Produk Shopee setelah import berhasil.
+        row[22] = ''; // Foto Sampul — isi manual setelah import
         row[31] = weightKg;
         row[35] = 'Aktif';
         row[36] = 'Aktif';

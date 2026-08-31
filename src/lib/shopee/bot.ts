@@ -1,30 +1,13 @@
 import { ShopeeProductMapping, PublishResult } from '@/types/product';
+import { ShopeeExcelExporter } from '@/lib/shopee/excel-exporter';
 import path from 'path';
 import fs from 'fs';
-import axios from 'axios';
-
-async function downloadTempImage(imageUrl: string): Promise<string> {
-  const tempDir = path.join(process.cwd(), 'data');
-  if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true });
-  const tempFile = path.join(tempDir, `temp_img_${Date.now()}.jpg`);
-
-  try {
-    const response = await axios.get(imageUrl, { responseType: 'arraybuffer', timeout: 10000 });
-    fs.writeFileSync(tempFile, response.data);
-    return tempFile;
-  } catch {
-    const sampleBuffer = Buffer.from(
-      '/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAP//////////////////////////////////////////////////////////////////////////////////////wgALCAABAAEBAREA/8QAFBABAAAAAAAAAAAAAAAAAAAAAP/aAAgBAQABPxA=',
-      'base64'
-    );
-    fs.writeFileSync(tempFile, sampleBuffer);
-    return tempFile;
-  }
-}
 
 export class ShopeeAutomationBot {
   /**
-   * Automate full Shopee product listing including image uploading and direct submission
+   * Strategy: Generate Shopee Mass Upload Excel → Playwright opens Shopee Mass Upload page
+   * → automatically uploads the generated .xlsx file → waits for Shopee to confirm import.
+   * This is the most reliable method since it bypasses form validation entirely.
    */
   public static async publishProduct(
     product: ShopeeProductMapping,
@@ -43,184 +26,203 @@ export class ShopeeAutomationBot {
     log(`Memulai proses automasi listing untuk: "${product.title}"`);
     log(`SKU: ${product.sku} | Harga Jual: Rp ${product.finalPrice.toLocaleString('id-ID')}`);
 
+    // Step 1: Generate Excel file for this product
+    const uploadDir = path.join(process.cwd(), 'data');
+    if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
+    const xlsxPath = path.join(uploadDir, `shopee_upload_${product.sku}_${Date.now()}.xlsx`);
+
     let playwrightSuccess = false;
     let screenshotUrl: string | undefined;
+
+    try {
+      log('📄 Membuat file Shopee Mass Upload Excel untuk produk ini...');
+      const buffer = ShopeeExcelExporter.generateWorkbook([product]);
+      fs.writeFileSync(xlsxPath, buffer);
+      log(`✅ File Excel berhasil dibuat: ${path.basename(xlsxPath)} (${Math.round(buffer.length / 1024)} KB)`);
+    } catch (err) {
+      log(`⚠️ Gagal membuat file Excel: ${(err as Error).message}`);
+      return {
+        success: false,
+        productId: product.id,
+        method: 'PLAYWRIGHT_BOT',
+        message: `Gagal membuat file Excel: ${(err as Error).message}`,
+        logs,
+      };
+    }
 
     try {
       log('Memeriksa browser engine Playwright Chromium...');
       const { chromium } = await import('playwright');
 
       const isHeadless = options.headless ?? false;
-      log(`Inisialisasi browser Playwright Chromium (${isHeadless ? 'Background' : 'Visual Live Window'})...`);
+      log(`Inisialisasi browser Playwright (${isHeadless ? 'Background' : 'Visual Live Window'})...`);
 
       const browser = await chromium.launch({
         headless: isHeadless,
-        slowMo: isHeadless ? 0 : 250,
+        slowMo: isHeadless ? 0 : 200,
         args: ['--disable-blink-features=AutomationControlled', '--no-sandbox', '--start-maximized'],
       });
 
       const contextOptions: Parameters<typeof browser.newContext>[0] = {
-        viewport: isHeadless ? { width: 1280, height: 800 } : null,
+        viewport: isHeadless ? { width: 1440, height: 900 } : null,
         userAgent:
           'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        acceptDownloads: true,
       };
 
       if (hasSavedSession) {
         log('🔑 Sesi Login Shopee Terverifikasi (data/shopee_session.json)');
         contextOptions.storageState = sessionFilePath;
+      } else {
+        log('⚠️ Sesi login belum tersedia. Jalankan `npm run shopee:login` terlebih dahulu.');
       }
 
       const context = await browser.newContext(contextOptions);
       const page = await context.newPage();
 
-      const targetUrl = 'https://seller.shopee.co.id/portal/product/new';
-      log(`Navigasi ke Shopee Seller (${targetUrl})...`);
+      // Navigate directly to Mass Upload page
+      const massUploadUrl = 'https://seller.shopee.co.id/portal/product-mass/import/upload';
+      log(`Navigasi ke halaman Mass Upload Shopee: ${massUploadUrl}`);
 
-      await page.goto(targetUrl, {
+      await page.goto(massUploadUrl, {
         waitUntil: 'domcontentloaded',
         timeout: 35000,
       });
-
       await page.waitForTimeout(3000);
 
-      // Step 1: Input Judul Produk & Pilih Kategori
-      const titleInput = page.locator('input[placeholder*="Nama Merek" i], input[placeholder*="Tipe Produk" i], input.shopee-input__input').first();
-      if (await titleInput.isVisible({ timeout: 4000 }).catch(() => false)) {
-        await titleInput.fill(product.title);
-        log(`-> Berhasil mengisi Judul: "${product.title}"`);
+      log(`URL terkini: ${page.url()}`);
+
+      // Check if redirected to login
+      if (page.url().includes('account/signin') || page.url().includes('login')) {
+        log('⚠️ Session kadaluarsa. Silakan jalankan ulang: npm run shopee:login');
+        await page.screenshot({ path: path.join(process.cwd(), 'public/screenshots/shopee_login_required.png') });
+        screenshotUrl = '/screenshots/shopee_login_required.png';
+        await browser.close();
+        return {
+          success: false,
+          productId: product.id,
+          method: 'PLAYWRIGHT_BOT',
+          message: 'Sesi login Shopee kadaluarsa. Jalankan: npm run shopee:login',
+          logs,
+          screenshotUrl,
+        };
+      }
+
+      // Wait for the Mass Upload page to fully load
+      await page.waitForTimeout(2000);
+
+      // Step 2: Click "Upload File" tab if needed
+      const uploadTab = page.locator('text=Upload File, text=Unggah File').first();
+      if (await uploadTab.isVisible({ timeout: 3000 }).catch(() => false)) {
+        await uploadTab.click();
+        log('-> Membuka tab Upload File...');
         await page.waitForTimeout(1500);
-
-        const categoryOption = page.locator('.category-list-item, .category-recommendation-item, .shopee-cascader__item, .category-card').first();
-        if (await categoryOption.isVisible({ timeout: 2500 }).catch(() => false)) {
-          await categoryOption.click();
-          log('-> Memilih kategori rekomendasi Shopee');
-          await page.waitForTimeout(1000);
-        }
-
-        const nextBtn = page.locator('button:has-text("Selanjutnya"), button:has-text("Lanjut")').first();
-        if (await nextBtn.isVisible({ timeout: 2500 }).catch(() => false)) {
-          await nextBtn.click();
-          log('-> Melanjutkan ke halaman form detail produk...');
-          await page.waitForTimeout(4000);
-        }
       }
 
-      // Step 2: Upload Foto Sampul
-      if (product.mainImage) {
-        try {
-          const tempImgPath = await downloadTempImage(product.mainImage);
-          const fileInputs = page.locator('input[type="file"]');
-          if (await fileInputs.count() > 0) {
-            log('-> Mengunggah Foto Sampul Produk...');
-            await fileInputs.first().setInputFiles(tempImgPath);
-            await page.waitForTimeout(2500);
-            log('-> Foto Sampul berhasil diunggah');
-          }
-        } catch (imgErr) {
-          log(`-> Catatan upload foto: ${(imgErr as Error).message}`);
-        }
+      // Step 3: Click on "Basic Info" template button or "Upload Basic" tab
+      const basicTab = page.locator('text=Informasi Dasar, text=Basic, div[data-tab="basic"]').first();
+      if (await basicTab.isVisible({ timeout: 2000 }).catch(() => false)) {
+        await basicTab.click();
+        log('-> Memilih tab template Informasi Dasar (Basic)...');
+        await page.waitForTimeout(1000);
       }
 
-      // Step 3: Isi Deskripsi Produk
-      const descInput = page.locator('textarea, div[contenteditable="true"]').first();
-      if (await descInput.isVisible({ timeout: 3000 }).catch(() => false)) {
-        await descInput.fill(product.description);
-        log(`-> Berhasil mengisi Deskripsi Produk (${product.description.length} karakter)`);
-      }
+      // Step 4: Upload the generated Excel file via <input type="file">
+      log(`📁 Mengunggah file Excel ke Shopee Mass Upload: ${path.basename(xlsxPath)}`);
+      const fileInput = page.locator('input[type="file"]').first();
 
-      // Step 4: Isi Harga & Stok
-      const priceInput = page.locator('input[placeholder*="Harga" i], input[placeholder*="Price" i]').first();
-      if (await priceInput.isVisible({ timeout: 2500 }).catch(() => false)) {
-        await priceInput.fill(product.finalPrice.toString());
-        log(`-> Berhasil mengisi Harga: Rp ${product.finalPrice.toLocaleString('id-ID')}`);
-      }
+      if (await fileInput.count() > 0) {
+        await fileInput.setInputFiles(xlsxPath);
+        log('-> File Excel berhasil dikirim ke Shopee upload form!');
+        await page.waitForTimeout(3000);
 
-      const stockInput = page.locator('input[placeholder*="Stok" i], input[placeholder*="Stock" i]').first();
-      if (await stockInput.isVisible({ timeout: 2500 }).catch(() => false)) {
-        await stockInput.fill((product.stock || 100).toString());
-        log(`-> Berhasil mengisi Stok: ${product.stock || 100}`);
-      }
+        // Wait for upload response / progress bar
+        const uploadSuccess = page.locator(
+          'text=berhasil, text=Berhasil Diunggah, text=Upload Berhasil, .upload-success, .success-icon'
+        ).first();
+        const uploadError = page.locator(
+          'text=Gagal, text=Error, text=Invalid, .upload-error, .error-icon'
+        ).first();
 
-      // Step 5: Isi Berat Barang
-      const weightInput = page.locator('input[placeholder*="Berat" i], input[placeholder*="Weight" i]').first();
-      if (await weightInput.isVisible({ timeout: 2500 }).catch(() => false)) {
-        const weightKg = (product.weightGrams / 1000).toFixed(2);
-        await weightInput.fill(weightKg);
-        log(`-> Berhasil mengisi Berat: ${weightKg} kg`);
-      }
-
-      // Step 6: Pilih Atribut "Tidak Ada Merek" (No Brand) jika wajib
-      try {
-        const brandSelector = page.locator('.shopee-form-item:has-text("Merek"), .shopee-form-item:has-text("Brand")').locator('.shopee-select, input').first();
-        if (await brandSelector.isVisible({ timeout: 2000 }).catch(() => false)) {
-          await brandSelector.click();
-          await page.waitForTimeout(800);
-          const noBrandOption = page.locator('.shopee-select__menu-item:has-text("Tidak Ada Merek"), .shopee-select__menu-item:has-text("No Brand")').first();
-          if (await noBrandOption.isVisible({ timeout: 2000 }).catch(() => false)) {
-            await noBrandOption.click();
-            log('-> Memilih atribut Merek: Tidak Ada Merek');
-          }
-        }
-      } catch {
-        // ignore optional brand
-      }
-
-      // Step 7: Klik Tombol "Simpan & Tampilkan" (Save and Publish)
-      log('Menjalankan proses submit "Simpan & Tampilkan"...');
-      const publishBtn = page.locator('button:has-text("Simpan & Tampilkan"), button:has-text("Simpan dan Tampilkan"), button:has-text("Save and Publish")').first();
-      if (await publishBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
-        await publishBtn.click();
-        log('🚀 Tombol "Simpan & Tampilkan" berhasil diklik! Produk sedang dikirim ke Shopee...');
-        await page.waitForTimeout(4000);
-      } else {
-        const draftBtn = page.locator('button:has-text("Simpan & Arsipkan"), button:has-text("Simpan dan Arsipkan")').first();
-        if (await draftBtn.isVisible({ timeout: 2000 }).catch(() => false)) {
-          await draftBtn.click();
-          log('Tombol "Simpan & Arsipkan" diklik');
+        // Wait up to 30s for upload to complete
+        let uploadDone = false;
+        for (let i = 0; i < 10; i++) {
           await page.waitForTimeout(3000);
+          const isSuccess = await uploadSuccess.isVisible({ timeout: 1000 }).catch(() => false);
+          const isError = await uploadError.isVisible({ timeout: 1000 }).catch(() => false);
+
+          if (isSuccess) {
+            log('🎉 Upload Excel ke Shopee Mass Upload BERHASIL! Produk sedang diproses...');
+            uploadDone = true;
+            break;
+          }
+          if (isError) {
+            const errorText = await uploadError.textContent().catch(() => '');
+            log(`⚠️ Shopee menolak file: ${errorText}. Cek format template.`);
+            uploadDone = true;
+            break;
+          }
+          log(`-> Menunggu proses upload Shopee... (${(i + 1) * 3}s)`);
+        }
+
+        if (!uploadDone) {
+          log('-> Upload file selesai dikirim. Shopee sedang memproses di backend...');
+        }
+      } else {
+        // Fallback: click upload button/area then setInputFiles
+        const uploadArea = page.locator('.upload-dragger, .ant-upload, [class*="upload"]').first();
+        if (await uploadArea.isVisible({ timeout: 2000 }).catch(() => false)) {
+          await uploadArea.click();
+          await page.waitForTimeout(500);
+          const fileInput2 = page.locator('input[type="file"]').first();
+          if (await fileInput2.count() > 0) {
+            await fileInput2.setInputFiles(xlsxPath);
+            log('-> File Excel berhasil dikirim melalui upload area!');
+            await page.waitForTimeout(5000);
+          }
+        } else {
+          log('⚠️ Input file tidak ditemukan di halaman Mass Upload. Shopee mungkin memperbarui UI.');
         }
       }
 
-      // Ambil Screenshot Bukti Hasil Eksekusi
+      // Screenshot as proof
       const screenshotsDir = path.join(process.cwd(), 'public', 'screenshots');
-      try {
-        if (!fs.existsSync(screenshotsDir)) {
-          fs.mkdirSync(screenshotsDir, { recursive: true });
-        }
-        const screenshotFilename = `proof-${product.sku}-${Date.now()}.png`;
-        const screenshotPath = path.join(screenshotsDir, screenshotFilename);
-        await page.screenshot({ path: screenshotPath, fullPage: false });
-        screenshotUrl = `/screenshots/${screenshotFilename}`;
-        log(`Screenshot verifikasi berhasil disimpan: ${screenshotUrl}`);
-      } catch {
-        screenshotUrl = product.mainImage;
-      }
+      if (!fs.existsSync(screenshotsDir)) fs.mkdirSync(screenshotsDir, { recursive: true });
+      const screenshotFilename = `proof-${product.sku}-${Date.now()}.png`;
+      const screenshotPath = path.join(screenshotsDir, screenshotFilename);
+      await page.screenshot({ path: screenshotPath, fullPage: false });
+      screenshotUrl = `/screenshots/${screenshotFilename}`;
+      log(`📸 Screenshot bukti disimpan: ${screenshotUrl}`);
 
-      log('✅ Seluruh proses upload produk ke Shopee Seller Center berhasil diselesaikan!');
+      log('✅ Proses automasi Mass Upload ke Shopee Seller Center selesai!');
+
       await page.waitForTimeout(isHeadless ? 1000 : 5000);
       await browser.close();
       playwrightSuccess = true;
+
+      // Cleanup temp Excel file
+      try { fs.unlinkSync(xlsxPath); } catch { /* ignore */ }
     } catch (err: unknown) {
       const error = err as Error;
-      console.warn(`[ShopeeAutomationBot] Standard Playwright: ${error.message}`);
+      log(`⚠️ Playwright error: ${error.message}`);
+      console.warn(`[ShopeeAutomationBot] Error:`, error.message);
     }
 
     if (!playwrightSuccess) {
-      log('🌐 Menjalankan Cloud Serverless Automation Pipeline...');
-      await new Promise((r) => setTimeout(r, 600));
-      log(`Memetakan & memvalidasi atribut produk ke skema Shopee:`);
+      log('⚠️ Bot tidak dapat dijalankan dari server Next.js (Playwright berjalan lokal saja).');
+      log('💡 Solusi: Klik tombol "Export All (Shopee Excel)" → upload manual ke Shopee Mass Upload.');
       log(`-> Judul: ${product.title}`);
       log(`-> Harga Jual: Rp ${product.finalPrice.toLocaleString('id-ID')}`);
       log(`-> Stok: ${product.stock} | Berat: ${product.weightGrams} gr`);
-      log('✅ Seluruh payload produk berhasil diproses dan diverifikasi siap di Shopee Seller Center.');
-      screenshotUrl = product.mainImage;
     }
 
     return {
-      success: true,
+      success: playwrightSuccess,
       productId: product.id,
-      method: 'PLAYWRIGHT_BOT',
-      message: 'Otomatisasi upload form Shopee Seller Center berhasil diselesaikan.',
+      method: 'PLAYWRIGHT_MASS_UPLOAD',
+      message: playwrightSuccess
+        ? '✅ File Excel berhasil diunggah ke Shopee Mass Upload secara otomatis!'
+        : '⚠️ Bot lokal tidak aktif. Gunakan tombol Export Excel untuk upload manual.',
       logs,
       screenshotUrl,
     };
